@@ -15,7 +15,8 @@ import { ResumeEditor } from './components/ResumeEditor';
 import { Snippet, Section, SnippetBankSection } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import { ToastContainer, toast } from 'react-toastify';
-import { improveSnippetWithAI, parseResumeWithAI } from './services/geminiService';
+import { improveSnippetWithAI } from './services/geminiService';
+import { parseMarkdownResume } from './services/resumeParser';
 import { exportResume, EXPORT_FORMATS, ExportFormat } from './services/exportService';
 
 const initialResumeState: Section[] = [
@@ -53,10 +54,14 @@ const App: React.FC = () => {
       reader.onload = async (e) => {
         const text = e.target?.result as string;
         if (text) {
-          const parsedSections = await parseResumeWithAI(text);
+          const parsedSections = parseMarkdownResume(text);
           const newBankSections = parsedSections.map(section => ({
             ...section,
-            snippets: section.snippets.map(content => ({ id: `bank-${uuidv4()}`, content }))
+            snippets: section.snippets.map(content => ({
+              id: `bank-${uuidv4()}`,
+              content,
+              originSectionTitle: section.title,
+            })),
           }));
           setSnippetBank(prevBank => [...prevBank, ...newBankSections]);
           toast.success('Resume parsed successfully!');
@@ -118,7 +123,12 @@ const App: React.FC = () => {
     // Add snippet to the correct resume section (creating it if necessary)
     setResumeSections(prevSections => {
       const targetSection = prevSections.find(s => s.title === sourceSectionTitle);
-      const newSnippet: Snippet = { id: `snippet-${uuidv4()}`, content: snippet.content };
+      const originSectionTitle = snippet.originSectionTitle || sourceSectionTitle;
+      const newSnippet: Snippet = {
+        id: `snippet-${uuidv4()}`,
+        content: snippet.content,
+        originSectionTitle,
+      };
 
       if (targetSection) {
         return prevSections.map(s =>
@@ -284,12 +294,47 @@ const App: React.FC = () => {
   };
 
   const removeSnippet = (sectionId: string, snippetId: string) => {
-    setResumeSections(prev => prev.map(section => {
-      if (section.id === sectionId) {
-        return { ...section, snippets: section.snippets.filter(s => s.id !== snippetId) };
-      }
-      return section;
-    }));
+    let snippetToReturn: Snippet | null = null;
+    let fallbackSectionTitle = '';
+
+    setResumeSections(prev =>
+      prev.map(section => {
+        if (section.id === sectionId) {
+          fallbackSectionTitle = section.title;
+          const foundSnippet = section.snippets.find(s => s.id === snippetId) || null;
+          if (foundSnippet) {
+            snippetToReturn = foundSnippet;
+          }
+          return {
+            ...section,
+            snippets: section.snippets.filter(s => s.id !== snippetId),
+          };
+        }
+        return section;
+      })
+    );
+
+    if (snippetToReturn) {
+      const bankSectionTitle = snippetToReturn.originSectionTitle || fallbackSectionTitle || 'General';
+      const snippetForBank: Snippet = {
+        ...snippetToReturn,
+        id: `bank-${uuidv4()}`,
+        originSectionTitle: bankSectionTitle,
+      };
+
+      setSnippetBank(prevBank => {
+        const existingIndex = prevBank.findIndex(section => section.title === bankSectionTitle);
+        if (existingIndex === -1) {
+          return [...prevBank, { title: bankSectionTitle, snippets: [snippetForBank] }];
+        }
+
+        return prevBank.map((section, index) =>
+          index === existingIndex
+            ? { ...section, snippets: [...section.snippets, snippetForBank] }
+            : section
+        );
+      });
+    }
   };
 
   const handleExportResume = (format: ExportFormat) => {
