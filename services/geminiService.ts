@@ -40,7 +40,7 @@ const suggestionSchema = {
 export const parseResumeWithAI = async (resumeText: string): Promise<{ title: string, snippets: string[] }[]> => {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: `Parse the following resume text into a structured JSON format. Identify logical sections and extract each bullet point or entry as a separate snippet within its section. Resume text: \n\n${resumeText}`,
       config: {
         responseMimeType: "application/json",
@@ -72,7 +72,7 @@ export const parseResumeWithAI = async (resumeText: string): Promise<{ title: st
 export const improveSnippetWithAI = async (snippetText: string): Promise<string[]> => {
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-pro",
             contents: `Based on the following resume bullet point, generate 3 alternative, more impactful versions. Focus on using action verbs and quantifying achievements where possible. Original snippet: "${snippetText}"`,
             config: {
                 responseMimeType: "application/json",
