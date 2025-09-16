@@ -1,0 +1,5 @@
+{
+  "name": "AI Resume Editor",
+  "description": "A web-based resume editor that uses AI to parse uploaded resumes and suggest improvements. Features a drag-and-drop interface to build and customize your resume from extracted or AI-generated snippets.",
+  "requestFramePermissions": []
+}
