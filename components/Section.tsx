@@ -90,6 +90,25 @@ export const Section: React.FC<SectionProps> = ({
           )}
         </SortableContext>
       </div>
+
+      {section.subsections && section.subsections.length > 0 && (
+        <div className="ml-8 mt-4 border-l-2 border-slate-200 pl-6">
+          <SortableContext items={section.subsections.map(s => s.id)} strategy={verticalListSortingStrategy}>
+            {section.subsections.map(subSection => (
+              <Section
+                key={subSection.id}
+                section={subSection}
+                onRemoveSection={onRemoveSection}
+                onRemoveSnippet={onRemoveSnippet}
+                onUpdateTitle={onUpdateTitle}
+                onUpdateSnippetContent={onUpdateSnippetContent}
+                onImproveSnippet={onImproveSnippet}
+                activeDragId={activeDragId}
+              />
+            ))}
+          </SortableContext>
+        </div>
+      )}
     </div>
   );
 };

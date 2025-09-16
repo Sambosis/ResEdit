@@ -8,6 +8,7 @@ export interface Section {
   id: string;
   title: string;
   snippets: Snippet[];
+  subsections?: Section[];
 }
 
 export interface SnippetBankSection {

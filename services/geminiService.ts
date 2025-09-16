@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 
 if (!process.env.API_KEY) {
@@ -7,26 +6,56 @@ if (!process.env.API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-const resumeSchema = {
-  type: Type.ARRAY,
-  items: {
-    type: Type.OBJECT,
-    properties: {
-      title: {
-        type: Type.STRING,
-        description: "The title of the resume section (e.g., 'Work Experience', 'Education', 'Skills').",
-      },
-      snippets: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.STRING,
-        },
-        description: "An array of strings, where each string is a single bullet point or entry from that section.",
-      },
+const baseSectionSchema = {
+  type: Type.OBJECT,
+  properties: {
+    title: { type: Type.STRING },
+    snippets: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
     },
-    required: ["title", "snippets"],
+    subsections: { type: Type.ARRAY, items: {} }, // No deeper recursion
   },
+  required: ["title", "snippets"],
 };
+
+const subSectionLevel1Schema = {
+  type: Type.OBJECT,
+  properties: {
+    title: { type: Type.STRING },
+    snippets: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+    },
+    subsections: {
+      type: Type.ARRAY,
+      items: baseSectionSchema,
+    },
+  },
+  required: ["title", "snippets"],
+};
+
+const resumeSchema: any = {
+  type: Type.OBJECT,
+  properties: {
+    title: {
+      type: Type.STRING,
+      description: "The main title or header of the resume (e.g., the person's name).",
+    },
+    snippets: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description: "Any content directly under the main title, with markdown preserved.",
+    },
+    subsections: {
+      type: Type.ARRAY,
+      description: "The main sections of the resume (e.g., 'Work Experience', 'Education').",
+      items: subSectionLevel1Schema,
+    },
+  },
+  required: ["title", "subsections"],
+};
+
 
 const suggestionSchema = {
     type: Type.ARRAY,
@@ -37,11 +66,19 @@ const suggestionSchema = {
     description: "An array of 3 improved resume bullet points."
 };
 
-export const parseResumeWithAI = async (resumeText: string): Promise<{ title: string, snippets: string[] }[]> => {
+export const parseResumeWithAI = async (resumeText: string): Promise<{ title: string, snippets: string[], subsections: any[] }> => {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: `Parse the following resume text into a structured JSON format. Identify logical sections and extract each bullet point or entry as a separate snippet within its section. Resume text: \n\n${resumeText}`,
+      contents: `Parse the following resume, which is in Markdown format, into a structured JSON object.
+      - The top-level 'title' should be the resume's main header (e.g., the person's name).
+      - The 'subsections' array should represent the main sections.
+      - Each section and subsection should have a 'title' and a 'snippets' array.
+      - The 'snippets' should be an array of strings, where each string is a paragraph or a bullet point from that section.
+      - **Crucially, preserve the original Markdown formatting in all 'title' and 'snippet' strings.**
+      - Nest subsections where appropriate (e.g., a job title under 'Work Experience').
+
+      Resume text: \n\n${resumeText}`,
       config: {
         responseMimeType: "application/json",
         responseSchema: resumeSchema,
@@ -51,17 +88,12 @@ export const parseResumeWithAI = async (resumeText: string): Promise<{ title: st
     const jsonString = response.text;
     const parsedJson = JSON.parse(jsonString);
     
-    if (Array.isArray(parsedJson)) {
-        return parsedJson as { title: string, snippets: string[] }[];
-    }
-    
-    // Sometimes the API might wrap the array in an object, e.g. { "data": [...] }
-    const key = Object.keys(parsedJson)[0];
-    if (key && Array.isArray(parsedJson[key])) {
-        return parsedJson[key] as { title: string, snippets: string[] }[];
+    // The new schema expects an object, not an array
+    if (parsedJson && typeof parsedJson === 'object' && !Array.isArray(parsedJson) && parsedJson.title && parsedJson.subsections) {
+      return parsedJson as { title: string, snippets: string[], subsections: any[] };
     }
 
-    throw new Error("Parsed JSON is not in the expected array format.");
+    throw new Error("Parsed JSON is not in the expected object format.");
 
   } catch (error) {
     console.error("Error calling Gemini API for parsing:", error);

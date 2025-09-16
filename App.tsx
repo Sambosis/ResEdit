@@ -53,11 +53,45 @@ const App: React.FC = () => {
       reader.onload = async (e) => {
         const text = e.target?.result as string;
         if (text) {
-          const parsedSections = await parseResumeWithAI(text);
-          const newBankSections = parsedSections.map(section => ({
-            ...section,
-            snippets: section.snippets.map(content => ({ id: `bank-${uuidv4()}`, content }))
-          }));
+          const parsedResume = await parseResumeWithAI(text);
+
+          const processSections = (sections: any[]): Section[] => {
+            return sections.map(section => ({
+              id: `section-${uuidv4()}`,
+              title: section.title,
+              snippets: section.snippets.map((content: string) => ({ id: `snippet-${uuidv4()}`, content })),
+              subsections: section.subsections ? processSections(section.subsections) : [],
+            }));
+          };
+
+          const newResumeSections = processSections(parsedResume.subsections);
+          // Create a top-level section for the resume's title
+          const headerSection: Section = {
+            id: `section-${uuidv4()}`,
+            title: parsedResume.title,
+            snippets: parsedResume.snippets.map((content: string) => ({ id: `snippet-${uuidv4()}`, content })),
+            subsections: newResumeSections,
+          };
+          setResumeSections([headerSection]);
+
+
+          const bankSectionsFromSubsections = (sections: Section[]): SnippetBankSection[] => {
+            let bank: SnippetBankSection[] = [];
+            sections.forEach(section => {
+              if (section.snippets.length > 0) {
+                bank.push({
+                  title: section.title,
+                  snippets: section.snippets.map(snippet => ({ ...snippet, id: `bank-${uuidv4()}`}))
+                });
+              }
+              if (section.subsections) {
+                bank = bank.concat(bankSectionsFromSubsections(section.subsections));
+              }
+            });
+            return bank;
+          };
+
+          const newBankSections = bankSectionsFromSubsections(newResumeSections);
           setSnippetBank(prevBank => [...prevBank, ...newBankSections]);
           toast.success('Resume parsed successfully!');
         }
@@ -151,18 +185,27 @@ const App: React.FC = () => {
     });
   };
 
-  const findSectionAndSnippet = (id: string): { sectionId: string; snippetId: string } | { sectionId: string; snippetId: null } | null => {
-    for (const section of resumeSections) {
-      if (section.id === id) {
-        return { sectionId: section.id, snippetId: null };
-      }
-      for (const snippet of section.snippets) {
-        if (snippet.id === id) {
-          return { sectionId: section.id, snippetId: snippet.id };
+  const findSectionAndSnippet = (id: string): { sectionId: string; snippetId: string | null } | null => {
+    const find = (sections: Section[]): { sectionId: string; snippetId: string | null } | null => {
+      for (const section of sections) {
+        if (section.id === id) {
+          return { sectionId: section.id, snippetId: null };
+        }
+        for (const snippet of section.snippets) {
+          if (snippet.id === id) {
+            return { sectionId: section.id, snippetId: snippet.id };
+          }
+        }
+        if (section.subsections) {
+          const found = find(section.subsections);
+          if (found) {
+            return found;
+          }
         }
       }
-    }
-    return null;
+      return null;
+    };
+    return find(resumeSections);
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -280,16 +323,61 @@ const App: React.FC = () => {
   };
 
   const removeSection = (sectionId: string) => {
-    setResumeSections(prev => prev.filter(section => section.id !== sectionId));
+    const remove = (sections: Section[]): Section[] => {
+      return sections.filter(section => {
+        if (section.id === sectionId) {
+          return false;
+        }
+        if (section.subsections) {
+          section.subsections = remove(section.subsections);
+        }
+        return true;
+      });
+    };
+    setResumeSections(prev => remove(JSON.parse(JSON.stringify(prev))));
   };
 
   const removeSnippet = (sectionId: string, snippetId: string) => {
-    setResumeSections(prev => prev.map(section => {
-      if (section.id === sectionId) {
-        return { ...section, snippets: section.snippets.filter(s => s.id !== snippetId) };
-      }
-      return section;
-    }));
+    let snippetToAddBack: Snippet | null = null;
+    let sectionTitleForBank: string | null = null;
+
+    // First, remove the snippet from the resume sections
+    setResumeSections(prev => {
+      const newSections = JSON.parse(JSON.stringify(prev));
+
+      const findAndRemove = (sections: Section[]): Section[] => {
+        return sections.map(section => {
+          const snippetIndex = section.snippets.findIndex(s => s.id === snippetId);
+          if (snippetIndex > -1 && section.id === sectionId) {
+            snippetToAddBack = section.snippets[snippetIndex];
+            sectionTitleForBank = section.title;
+            section.snippets.splice(snippetIndex, 1);
+          } else if (section.subsections) {
+            section.subsections = findAndRemove(section.subsections);
+          }
+          return section;
+        });
+      };
+
+      return findAndRemove(newSections);
+    });
+
+    // Now, add the removed snippet back to the bank
+    if (snippetToAddBack && sectionTitleForBank) {
+      setSnippetBank(prevBank => {
+        const newBank = JSON.parse(JSON.stringify(prevBank));
+        const bankSectionIndex = newBank.findIndex((s: SnippetBankSection) => s.title === sectionTitleForBank);
+
+        const newBankSnippet = { ...snippetToAddBack, id: `bank-${uuidv4()}` };
+
+        if (bankSectionIndex > -1) {
+          newBank[bankSectionIndex].snippets.push(newBankSnippet);
+        } else {
+          newBank.push({ title: sectionTitleForBank, snippets: [newBankSnippet] });
+        }
+        return newBank;
+      });
+    }
   };
 
   const handleExportResume = (format: ExportFormat) => {
