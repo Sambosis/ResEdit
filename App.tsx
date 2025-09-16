@@ -16,6 +16,12 @@ import { Snippet, Section, SnippetBankSection } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import { ToastContainer, toast } from 'react-toastify';
 import { improveSnippetWithAI, parseResumeWithAI } from './services/geminiService';
+import {
+  exportResumeToFile,
+  ResumeExportFormat,
+  getFormatLabel,
+  hasExportableContent,
+} from './services/exportService';
 
 const initialResumeState: Section[] = [
   {
@@ -291,6 +297,21 @@ const App: React.FC = () => {
     }));
   };
 
+  const handleExportResume = (format: ResumeExportFormat) => {
+    if (!hasExportableContent(resumeSections)) {
+      toast.warn('Add content to your resume before exporting.');
+      return;
+    }
+
+    try {
+      exportResumeToFile(resumeSections, format);
+      toast.success(`Resume exported as ${getFormatLabel(format)}.`);
+    } catch (error) {
+      console.error('Error exporting resume:', error);
+      toast.error('Failed to export resume.');
+    }
+  };
+
   return (
     <DndContext
       sensors={sensors}
@@ -316,6 +337,7 @@ const App: React.FC = () => {
             onUpdateSnippetContent={updateSnippetContent}
             onImproveSnippet={improveSnippet}
             activeDragId={activeDragId}
+            onExport={handleExportResume}
           />
         </main>
       </div>
