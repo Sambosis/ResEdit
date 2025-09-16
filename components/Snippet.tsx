@@ -45,9 +45,11 @@ export const Snippet: React.FC<SnippetProps> = ({ snippet, sectionId, onRemove, 
         <EditableText
             initialValue={snippet.content}
             onSave={(newContent) => onUpdateContent(sectionId, snippet.id, newContent)}
-            className="text-slate-800"
+            className="text-slate-800 cursor-pointer"
             inputClassName="w-full border-b-2 border-blue-500 focus:outline-none bg-yellow-50"
             isTextarea={true}
+            renderMarkdown
+            markdownClassName="text-slate-800 whitespace-pre-wrap leading-relaxed"
         />
       </div>
       <div className={`absolute top-1/2 -translate-y-1/2 right-2 flex items-center space-x-2 transition-opacity duration-200 ${isHovered || isDragging ? 'opacity-100' : 'opacity-0'}`}>

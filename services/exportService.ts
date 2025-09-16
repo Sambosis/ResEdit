@@ -31,11 +31,27 @@ const downloadTextFile = (content: string, filename: string, mimeType: string) =
 const generateMarkdown = (sections: Section[]): string =>
   sections
     .map(section => {
+      const cleanedTitle = section.title.trim();
       const body = section.snippets
-        .map(snippet => `- ${snippet.content}`)
-        .join('\n');
-      return `## ${section.title}\n${body}`.trim();
+        .map(snippet => snippet.content.trim())
+        .filter(snippet => snippet.length > 0)
+        .join('\n\n');
+
+      if (!cleanedTitle && !body) {
+        return '';
+      }
+
+      if (!body) {
+        return `## ${cleanedTitle}`.trim();
+      }
+
+      if (!cleanedTitle) {
+        return body;
+      }
+
+      return `## ${cleanedTitle}\n\n${body}`.trim();
     })
+    .filter(section => section.length > 0)
     .join('\n\n');
 
 const generatePlainText = (sections: Section[]): string =>

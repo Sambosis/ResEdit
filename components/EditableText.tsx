@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 interface EditableTextProps {
   initialValue: string;
@@ -7,6 +8,8 @@ interface EditableTextProps {
   className?: string;
   inputClassName?: string;
   isTextarea?: boolean;
+  renderMarkdown?: boolean;
+  markdownClassName?: string;
 }
 
 export const EditableText: React.FC<EditableTextProps> = ({
@@ -15,6 +18,8 @@ export const EditableText: React.FC<EditableTextProps> = ({
   className,
   inputClassName,
   isTextarea = false,
+  renderMarkdown = false,
+  markdownClassName,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [value, setValue] = useState(initialValue);
@@ -79,7 +84,11 @@ export const EditableText: React.FC<EditableTextProps> = ({
 
   return (
     <div onClick={() => setIsEditing(true)} className={className || 'cursor-pointer'}>
-      {value}
+      {renderMarkdown ? (
+        <ReactMarkdown className={markdownClassName}>{value}</ReactMarkdown>
+      ) : (
+        value
+      )}
     </div>
   );
 };
