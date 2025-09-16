@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { Snippet, SnippetBankSection } from '../types';
+import { MarkdownPreview } from './MarkdownPreview';
 
 interface DraggableSnippetProps {
   snippet: Snippet;
@@ -32,7 +33,7 @@ const DraggableBankSnippet: React.FC<DraggableSnippetProps> = ({ snippet, sectio
       onDoubleClick={() => onDoubleClick(snippet, sectionTitle)}
       className="p-3 mb-2 bg-white border border-slate-200 rounded-md shadow-sm cursor-grab active:cursor-grabbing hover:bg-slate-50 transition-all"
     >
-      <p className="text-sm text-slate-700">{snippet.content}</p>
+      <MarkdownPreview content={snippet.content} className="text-sm text-slate-700" />
     </div>
   );
 };

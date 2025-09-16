@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { MarkdownPreview } from './MarkdownPreview';
 
 interface EditableTextProps {
   initialValue: string;
@@ -79,7 +80,7 @@ export const EditableText: React.FC<EditableTextProps> = ({
 
   return (
     <div onClick={() => setIsEditing(true)} className={className || 'cursor-pointer'}>
-      {value}
+      {isTextarea ? <MarkdownPreview content={value} /> : value}
     </div>
   );
 };
