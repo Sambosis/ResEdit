@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { Snippet, SnippetBankSection } from '../types';
+import ReactMarkdown from 'react-markdown';
 
 interface DraggableSnippetProps {
   snippet: Snippet;
@@ -32,7 +33,9 @@ const DraggableBankSnippet: React.FC<DraggableSnippetProps> = ({ snippet, sectio
       onDoubleClick={() => onDoubleClick(snippet, sectionTitle)}
       className="p-3 mb-2 bg-white border border-slate-200 rounded-md shadow-sm cursor-grab active:cursor-grabbing hover:bg-slate-50 transition-all"
     >
-      <p className="text-sm text-slate-700">{snippet.content}</p>
+      <ReactMarkdown className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+        {snippet.content}
+      </ReactMarkdown>
     </div>
   );
 };
@@ -67,7 +70,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ snippetBank, onFileUpload, isL
       <div className="mb-6">
         <input
           type="file"
-          accept=".txt,.md"
+          accept=".md,.markdown"
           onChange={handleFileChange}
           ref={fileInputRef}
           className="hidden"
@@ -87,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ snippetBank, onFileUpload, isL
                 <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
             </svg>
           )}
-          {isLoading ? 'Parsing...' : 'Upload Resume (.txt, .md)'}
+          {isLoading ? 'Parsing...' : 'Upload Resume (.md)'}
         </button>
       </div>
 

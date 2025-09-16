@@ -15,7 +15,8 @@ import { ResumeEditor } from './components/ResumeEditor';
 import { Snippet, Section, SnippetBankSection } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import { ToastContainer, toast } from 'react-toastify';
-import { improveSnippetWithAI, parseResumeWithAI } from './services/geminiService';
+import { improveSnippetWithAI } from './services/geminiService';
+import { parseMarkdownResume } from './services/markdownParser';
 import { exportResume, EXPORT_FORMATS, ExportFormat } from './services/exportService';
 
 const initialResumeState: Section[] = [
@@ -46,23 +47,55 @@ const App: React.FC = () => {
       toast.error('Please select a file.');
       return;
     }
+
     setIsLoading(true);
-    toast.info('Parsing resume with AI...');
+    toast.info('Parsing resume...');
+
     try {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const text = e.target?.result as string;
-        if (text) {
-          const parsedSections = await parseResumeWithAI(text);
-          const newBankSections = parsedSections.map(section => ({
-            ...section,
-            snippets: section.snippets.map(content => ({ id: `bank-${uuidv4()}`, content }))
-          }));
-          setSnippetBank(prevBank => [...prevBank, ...newBankSections]);
-          toast.success('Resume parsed successfully!');
-        }
-      };
-      reader.readAsText(file);
+      const text = await file.text();
+      if (!text) {
+        throw new Error('The selected file is empty.');
+      }
+
+      const parsedSections = parseMarkdownResume(text);
+      if (parsedSections.length === 0) {
+        toast.warn('No content was found in the uploaded resume.');
+        return;
+      }
+
+      const newBankSections = parsedSections
+        .map(section => ({
+          title: section.title,
+          snippets: section.snippets
+            .filter(snippet => snippet.trim().length > 0)
+            .map(content => ({ id: `bank-${uuidv4()}`, content })),
+        }))
+        .filter(section => section.snippets.length > 0);
+
+      if (newBankSections.length === 0) {
+        toast.warn('Unable to extract snippets from the uploaded resume.');
+        return;
+      }
+
+      setSnippetBank(prevBank => {
+        const mergedBank = [...prevBank];
+
+        newBankSections.forEach(section => {
+          const existingSectionIndex = mergedBank.findIndex(item => item.title === section.title);
+          if (existingSectionIndex >= 0) {
+            mergedBank[existingSectionIndex] = {
+              ...mergedBank[existingSectionIndex],
+              snippets: [...mergedBank[existingSectionIndex].snippets, ...section.snippets],
+            };
+          } else {
+            mergedBank.push(section);
+          }
+        });
+
+        return mergedBank;
+      });
+
+      toast.success('Resume parsed successfully!');
     } catch (error) {
       console.error('Error parsing resume:', error);
       toast.error('Failed to parse resume.');
@@ -284,12 +317,41 @@ const App: React.FC = () => {
   };
 
   const removeSnippet = (sectionId: string, snippetId: string) => {
-    setResumeSections(prev => prev.map(section => {
-      if (section.id === sectionId) {
-        return { ...section, snippets: section.snippets.filter(s => s.id !== snippetId) };
-      }
-      return section;
-    }));
+    let snippetToReturn: Snippet | null = null;
+    let sourceSectionTitle = '';
+
+    setResumeSections(prev =>
+      prev.map(section => {
+        if (section.id === sectionId) {
+          const snippet = section.snippets.find(s => s.id === snippetId);
+          if (snippet) {
+            snippetToReturn = { ...snippet };
+            sourceSectionTitle = section.title;
+          }
+          return { ...section, snippets: section.snippets.filter(s => s.id !== snippetId) };
+        }
+        return section;
+      })
+    );
+
+    if (snippetToReturn && sourceSectionTitle) {
+      const snippetForBank: Snippet = { id: `bank-${uuidv4()}`, content: snippetToReturn.content };
+
+      setSnippetBank(prevBank => {
+        const existingSectionIndex = prevBank.findIndex(section => section.title === sourceSectionTitle);
+
+        if (existingSectionIndex >= 0) {
+          const updatedBank = [...prevBank];
+          updatedBank[existingSectionIndex] = {
+            ...updatedBank[existingSectionIndex],
+            snippets: [...updatedBank[existingSectionIndex].snippets, snippetForBank],
+          };
+          return updatedBank;
+        }
+
+        return [...prevBank, { title: sourceSectionTitle, snippets: [snippetForBank] }];
+      });
+    }
   };
 
   const handleExportResume = (format: ExportFormat) => {
