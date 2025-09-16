@@ -16,6 +16,8 @@ import { Snippet, Section, SnippetBankSection } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import { ToastContainer, toast } from 'react-toastify';
 import { improveSnippetWithAI, parseResumeWithAI } from './services/geminiService';
+import type { ParsedResumeSection } from './services/geminiService';
+import { HEADER_SECTION_TITLE, isHeaderSectionTitle, normalizeSectionTitle } from './utils/sections';
 import { exportResume, EXPORT_FORMATS, ExportFormat } from './services/exportService';
 
 const initialResumeState: Section[] = [
@@ -33,6 +35,112 @@ const initialResumeState: Section[] = [
   },
 ];
 
+const sanitizeSnippetContent = (content: string): string =>
+  (content ?? '').replace(/\r/g, '').trim();
+
+const createSnippetFingerprint = (content: string): string =>
+  sanitizeSnippetContent(content).replace(/\s+/g, ' ').toLowerCase();
+
+const formatSectionTitle = (title: string): string => {
+  const trimmed = (title ?? '').trim();
+
+  if (!trimmed) {
+    return 'General';
+  }
+
+  if (isHeaderSectionTitle(trimmed)) {
+    return HEADER_SECTION_TITLE;
+  }
+
+  return trimmed.replace(/\s+/g, ' ');
+};
+
+const mergeSectionsIntoSnippetBank = (
+  currentBank: SnippetBankSection[],
+  parsedSections: ParsedResumeSection[],
+): SnippetBankSection[] => {
+  if (!parsedSections || parsedSections.length === 0) {
+    return currentBank.map(section => ({
+      title: formatSectionTitle(section.title),
+      snippets: section.snippets.map(snippet => ({ ...snippet })),
+    }));
+  }
+
+  const mergedBank = currentBank.map(section => ({
+    title: formatSectionTitle(section.title),
+    snippets: section.snippets.map(snippet => ({ ...snippet })),
+  }));
+
+  const sectionMap = new Map<string, SnippetBankSection>();
+  const fingerprintMap = new Map<string, Set<string>>();
+
+  mergedBank.forEach(section => {
+    const normalizedTitle = normalizeSectionTitle(section.title);
+    sectionMap.set(normalizedTitle, section);
+    fingerprintMap.set(
+      normalizedTitle,
+      new Set(section.snippets.map(snippet => createSnippetFingerprint(snippet.content))),
+    );
+  });
+
+  parsedSections.forEach(parsedSection => {
+    const formattedTitle = formatSectionTitle(parsedSection.title);
+    const normalizedTitle = normalizeSectionTitle(formattedTitle);
+    let bankSection = sectionMap.get(normalizedTitle);
+    let fingerprints = bankSection ? fingerprintMap.get(normalizedTitle) : undefined;
+
+    const snippets = Array.isArray(parsedSection.snippets) ? parsedSection.snippets : [];
+
+    snippets.forEach(snippetText => {
+      const sanitizedContent = sanitizeSnippetContent(snippetText);
+      if (!sanitizedContent) {
+        return;
+      }
+
+      const fingerprint = createSnippetFingerprint(sanitizedContent);
+
+      if (fingerprints && fingerprints.has(fingerprint)) {
+        return;
+      }
+
+      if (!bankSection) {
+        bankSection = {
+          title: formattedTitle,
+          snippets: [],
+        };
+        sectionMap.set(normalizedTitle, bankSection);
+        fingerprints = new Set<string>();
+        fingerprintMap.set(normalizedTitle, fingerprints);
+        if (isHeaderSectionTitle(formattedTitle)) {
+          mergedBank.unshift(bankSection);
+        } else {
+          mergedBank.push(bankSection);
+        }
+      }
+
+      const activeFingerprints = fingerprintMap.get(normalizedTitle);
+      if (!activeFingerprints) {
+        return;
+      }
+
+      if (activeFingerprints.has(fingerprint)) {
+        return;
+      }
+
+      bankSection!.snippets.push({
+        id: `bank-${uuidv4()}`,
+        content: sanitizedContent,
+      });
+      activeFingerprints.add(fingerprint);
+    });
+  });
+
+  const headerSections = mergedBank.filter(section => isHeaderSectionTitle(section.title));
+  const otherSections = mergedBank.filter(section => !isHeaderSectionTitle(section.title));
+
+  return [...headerSections, ...otherSections];
+};
+
 const App: React.FC = () => {
   const [resumeSections, setResumeSections] = useState<Section[]>(initialResumeState);
   const [snippetBank, setSnippetBank] = useState<SnippetBankSection[]>([]);
@@ -49,20 +157,15 @@ const App: React.FC = () => {
     setIsLoading(true);
     toast.info('Parsing resume with AI...');
     try {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const text = e.target?.result as string;
-        if (text) {
-          const parsedSections = await parseResumeWithAI(text);
-          const newBankSections = parsedSections.map(section => ({
-            ...section,
-            snippets: section.snippets.map(content => ({ id: `bank-${uuidv4()}`, content }))
-          }));
-          setSnippetBank(prevBank => [...prevBank, ...newBankSections]);
-          toast.success('Resume parsed successfully!');
-        }
-      };
-      reader.readAsText(file);
+      const text = await file.text();
+      if (!text || !text.trim()) {
+        toast.error('The selected file is empty.');
+        return;
+      }
+
+      const parsedSections = await parseResumeWithAI(text);
+      setSnippetBank(prevBank => mergeSectionsIntoSnippetBank(prevBank, parsedSections));
+      toast.success('Resume parsed successfully!');
     } catch (error) {
       console.error('Error parsing resume:', error);
       toast.error('Failed to parse resume.');
@@ -115,39 +218,57 @@ const App: React.FC = () => {
   };
 
   const addSnippetFromBankToResume = (snippet: Snippet, sourceSectionTitle: string) => {
-    // Add snippet to the correct resume section (creating it if necessary)
+    const sanitizedContent = sanitizeSnippetContent(snippet.content);
+    if (!sanitizedContent) {
+      return;
+    }
+
+    const formattedTitle = formatSectionTitle(sourceSectionTitle);
+    const normalizedTitle = normalizeSectionTitle(formattedTitle);
+    const snippetFingerprint = createSnippetFingerprint(sanitizedContent);
+
     setResumeSections(prevSections => {
-      const targetSection = prevSections.find(s => s.title === sourceSectionTitle);
-      const newSnippet: Snippet = { id: `snippet-${uuidv4()}`, content: snippet.content };
+      const targetSection = prevSections.find(section => {
+        const normalizedSectionTitle = normalizeSectionTitle(section.title);
+        return (
+          normalizedSectionTitle === normalizedTitle ||
+          (isHeaderSectionTitle(section.title) && isHeaderSectionTitle(formattedTitle))
+        );
+      });
 
       if (targetSection) {
-        return prevSections.map(s =>
-          s.id === targetSection.id
-            ? { ...s, snippets: [...s.snippets, newSnippet] }
-            : s
+        const hasSnippet = targetSection.snippets.some(
+          existing => createSnippetFingerprint(existing.content) === snippetFingerprint,
         );
-      } else {
-        const newSection: Section = {
-          id: `section-${uuidv4()}`,
-          title: sourceSectionTitle,
-          snippets: [newSnippet],
-        };
-        return [...prevSections, newSection];
-      }
-    });
 
-    // Remove the snippet from the snippet bank
-    setSnippetBank(prevBank => {
-      const newBank = JSON.parse(JSON.stringify(prevBank));
-      const sectionIndex = newBank.findIndex((s: SnippetBankSection) => s.title === sourceSectionTitle);
-      if (sectionIndex > -1) {
-        newBank[sectionIndex].snippets = newBank[sectionIndex].snippets.filter((s: Snippet) => s.id !== snippet.id);
-        // If the section in the bank is now empty, remove it.
-        if (newBank[sectionIndex].snippets.length === 0) {
-          return newBank.filter((_: any, idx: number) => idx !== sectionIndex);
+        if (hasSnippet) {
+          return prevSections;
         }
+
+        return prevSections.map(section =>
+          section.id === targetSection.id
+            ? {
+                ...section,
+                snippets: [
+                  ...section.snippets,
+                  { id: `snippet-${uuidv4()}`, content: sanitizedContent },
+                ],
+              }
+            : section,
+        );
       }
-      return newBank;
+
+      const newSection: Section = {
+        id: `section-${uuidv4()}`,
+        title: formattedTitle,
+        snippets: [{ id: `snippet-${uuidv4()}`, content: sanitizedContent }],
+      };
+
+      if (isHeaderSectionTitle(formattedTitle)) {
+        return [newSection, ...prevSections];
+      }
+
+      return [...prevSections, newSection];
     });
   };
 

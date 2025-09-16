@@ -1,11 +1,20 @@
 import { jsPDF } from 'jspdf';
 import { ExportFormat, ExportOption, Section } from '../types';
+import { isHeaderSectionTitle } from '../utils/sections';
 
 export const EXPORT_FORMATS: ExportOption[] = [
   { value: 'markdown', label: 'Markdown (.md)', extension: 'md', mimeType: 'text/markdown' },
   { value: 'pdf', label: 'PDF (.pdf)', extension: 'pdf', mimeType: 'application/pdf' },
   { value: 'text', label: 'Plain Text (.txt)', extension: 'txt', mimeType: 'text/plain' },
 ];
+
+const trimSnippetContent = (content: string): string => (content ?? '').replace(/\r/g, '').trim();
+
+const splitSnippetLines = (content: string): string[] =>
+  trimSnippetContent(content)
+    .split(/\r?\n+/)
+    .map(line => line.trim())
+    .filter(Boolean);
 
 const hasResumeContent = (sections: Section[]): boolean =>
   sections.some(
@@ -31,21 +40,72 @@ const downloadTextFile = (content: string, filename: string, mimeType: string) =
 const generateMarkdown = (sections: Section[]): string =>
   sections
     .map(section => {
-      const body = section.snippets
-        .map(snippet => `- ${snippet.content}`)
-        .join('\n');
-      return `## ${section.title}\n${body}`.trim();
+      if (isHeaderSectionTitle(section.title)) {
+        const headerParts: string[] = [];
+
+        section.snippets.forEach((snippet, index) => {
+          if (index === 0) {
+            const [firstLine, ...rest] = splitSnippetLines(snippet.content);
+            if (firstLine) {
+              headerParts.push(`# ${firstLine.replace(/^#*\s*/, '')}`);
+            }
+            if (rest.length > 0) {
+              headerParts.push(rest.join('  \n'));
+            }
+            return;
+          }
+
+          const additionalLines = splitSnippetLines(snippet.content);
+          if (additionalLines.length > 0) {
+            headerParts.push(additionalLines.join('  \n'));
+          }
+        });
+
+        return headerParts.join('\n\n').trim();
+      }
+
+      const snippetLines = section.snippets
+        .map(snippet => trimSnippetContent(snippet.content))
+        .filter(Boolean)
+        .map(content => `- ${content}`);
+
+      if (snippetLines.length === 0) {
+        return `## ${section.title}`.trim();
+      }
+
+      return [`## ${section.title}`, snippetLines.join('\n')].join('\n').trim();
     })
+    .filter(Boolean)
     .join('\n\n');
 
 const generatePlainText = (sections: Section[]): string =>
   sections
     .map(section => {
-      const snippetText = section.snippets
-        .map(snippet => `• ${snippet.content}`)
-        .join('\n');
-      return `${section.title.toUpperCase()}\n${snippetText}`.trim();
+      if (isHeaderSectionTitle(section.title)) {
+        const lines: string[] = [];
+
+        section.snippets.forEach(snippet => {
+          const snippetLines = splitSnippetLines(snippet.content);
+          if (snippetLines.length > 0) {
+            lines.push(...snippetLines);
+          }
+        });
+
+        return lines.join('\n').trim();
+      }
+
+      const snippetLines = section.snippets
+        .map(snippet => trimSnippetContent(snippet.content))
+        .filter(Boolean)
+        .map(content => `• ${content}`);
+
+      if (snippetLines.length === 0) {
+        return section.title.toUpperCase();
+      }
+
+      return [`${section.title.toUpperCase()}`, snippetLines.join('\n')].join('\n').trim();
     })
+    .filter(Boolean)
     .join('\n\n');
 
 const generatePdf = (sections: Section[], fileName: string) => {
@@ -63,20 +123,63 @@ const generatePdf = (sections: Section[], fileName: string) => {
   const maxLineWidth = pageWidth - margin * 2;
 
   sections.forEach((section, sectionIndex) => {
+    if (isHeaderSectionTitle(section.title)) {
+      let isFirstLine = true;
+
+      section.snippets.forEach(snippet => {
+        const snippetLines = splitSnippetLines(snippet.content);
+
+        snippetLines.forEach(line => {
+          if (isFirstLine) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(24);
+            isFirstLine = false;
+          } else {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(12);
+          }
+
+          if (y > pageHeight - margin) {
+            doc.addPage();
+            y = margin;
+          }
+
+          doc.text(line, margin, y);
+          y += lineHeight;
+        });
+      });
+
+      if (sectionIndex < sections.length - 1) {
+        y += sectionSpacing;
+        if (y > pageHeight - margin) {
+          doc.addPage();
+          y = margin;
+        }
+      }
+
+      return;
+    }
+
     if (y + lineHeight > pageHeight - margin) {
       doc.addPage();
       y = margin;
     }
 
+    const sectionTitle = trimSnippetContent(section.title) || section.title;
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(18);
-    doc.text(section.title, margin, y);
+    doc.text(sectionTitle, margin, y);
     y += lineHeight;
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(12);
 
-    if (section.snippets.length === 0) {
+    const snippetContents = section.snippets
+      .map(snippet => trimSnippetContent(snippet.content))
+      .filter(Boolean);
+
+    if (snippetContents.length === 0) {
       if (y > pageHeight - margin) {
         doc.addPage();
         y = margin;
@@ -84,8 +187,8 @@ const generatePdf = (sections: Section[], fileName: string) => {
       doc.text('No entries yet.', margin, y);
       y += lineHeight;
     } else {
-      section.snippets.forEach((snippet, snippetIndex) => {
-        const bulletText = `• ${snippet.content}`;
+      snippetContents.forEach((content, snippetIndex) => {
+        const bulletText = `• ${content}`;
         const lines = doc.splitTextToSize(bulletText, maxLineWidth);
 
         lines.forEach(line => {
@@ -97,7 +200,7 @@ const generatePdf = (sections: Section[], fileName: string) => {
           y += lineHeight;
         });
 
-        if (snippetIndex < section.snippets.length - 1) {
+        if (snippetIndex < snippetContents.length - 1) {
           y += bulletSpacing;
         }
       });

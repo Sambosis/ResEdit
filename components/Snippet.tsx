@@ -45,7 +45,7 @@ export const Snippet: React.FC<SnippetProps> = ({ snippet, sectionId, onRemove, 
         <EditableText
             initialValue={snippet.content}
             onSave={(newContent) => onUpdateContent(sectionId, snippet.id, newContent)}
-            className="text-slate-800"
+            className="text-slate-800 whitespace-pre-line"
             inputClassName="w-full border-b-2 border-blue-500 focus:outline-none bg-yellow-50"
             isTextarea={true}
         />
