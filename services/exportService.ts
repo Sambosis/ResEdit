@@ -31,21 +31,24 @@ const downloadTextFile = (content: string, filename: string, mimeType: string) =
 const generateMarkdown = (sections: Section[]): string =>
   sections
     .map(section => {
-      const body = section.snippets
-        .map(snippet => `- ${snippet.content}`)
-        .join('\n');
-      return `## ${section.title}\n${body}`.trim();
+      const heading = section.title.trim();
+      const body = section.snippets.map(snippet => snippet.content).join('\n\n').trim();
+      return [heading ? `## ${heading}` : '', body].filter(Boolean).join('\n\n');
     })
+    .filter(block => block.trim().length > 0)
     .join('\n\n');
 
 const generatePlainText = (sections: Section[]): string =>
   sections
     .map(section => {
       const snippetText = section.snippets
-        .map(snippet => `• ${snippet.content}`)
-        .join('\n');
-      return `${section.title.toUpperCase()}\n${snippetText}`.trim();
+        .map(snippet => snippet.content)
+        .join('\n\n')
+        .trim();
+      const heading = section.title.trim().length > 0 ? section.title.toUpperCase() : '';
+      return [heading, snippetText].filter(Boolean).join('\n\n');
     })
+    .filter(block => block.trim().length > 0)
     .join('\n\n');
 
 const generatePdf = (sections: Section[], fileName: string) => {
