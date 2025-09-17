@@ -17,19 +17,30 @@ import { v4 as uuidv4 } from 'uuid';
 import { ToastContainer, toast } from 'react-toastify';
 import { improveSnippetWithAI, parseResumeWithAI } from './services/geminiService';
 import { exportResume, EXPORT_FORMATS, ExportFormat } from './services/exportService';
+import { mergeSectionsIntoSnippetBank, prepareSectionsForBank, MergeResult } from './services/snippetBankService';
 
 const initialResumeState: Section[] = [
   {
-    id: 'section-1',
-    title: 'Work Experience',
+    id: 'section-header',
+    title: 'Header',
     snippets: [
-      { id: 'snippet-1', content: 'Developed and maintained web applications using React and TypeScript.' },
+      {
+        id: 'snippet-header',
+        content: 'Your Name\nCity, ST • (123) 456-7890 • your.email@example.com',
+      },
     ],
   },
   {
-    id: 'section-2',
+    id: 'section-work',
+    title: 'Work Experience',
+    snippets: [
+      { id: 'snippet-work-1', content: 'Developed and maintained web applications using React and TypeScript.' },
+    ],
+  },
+  {
+    id: 'section-education',
     title: 'Education',
-    snippets: [{ id: 'snippet-2', content: 'B.S. in Computer Science, University of Technology' }],
+    snippets: [{ id: 'snippet-education-1', content: 'B.S. in Computer Science, University of Technology' }],
   },
 ];
 
@@ -46,23 +57,47 @@ const App: React.FC = () => {
       toast.error('Please select a file.');
       return;
     }
+
     setIsLoading(true);
     toast.info('Parsing resume with AI...');
+
     try {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const text = e.target?.result as string;
-        if (text) {
-          const parsedSections = await parseResumeWithAI(text);
-          const newBankSections = parsedSections.map(section => ({
-            ...section,
-            snippets: section.snippets.map(content => ({ id: `bank-${uuidv4()}`, content }))
-          }));
-          setSnippetBank(prevBank => [...prevBank, ...newBankSections]);
-          toast.success('Resume parsed successfully!');
-        }
-      };
-      reader.readAsText(file);
+      const text = await file.text();
+
+      if (!text.trim()) {
+        toast.error('The selected file is empty.');
+        return;
+      }
+
+      const parsedSections = await parseResumeWithAI(text);
+      const preparedSections = prepareSectionsForBank(parsedSections, text);
+
+      let mergeResult: MergeResult | null = null;
+      setSnippetBank(prevBank => {
+        const result = mergeSectionsIntoSnippetBank(prevBank, preparedSections);
+        mergeResult = result;
+        return result.bank;
+      });
+
+      if (!mergeResult) {
+        toast.info('No new snippets were found in that resume.');
+        return;
+      }
+
+      if (mergeResult.addedSections === 0 && mergeResult.addedSnippets === 0) {
+        toast.info('No new snippets were found in that resume.');
+      } else {
+        const sectionMessage =
+          mergeResult.addedSections > 0
+            ? `${mergeResult.addedSections} new section${mergeResult.addedSections === 1 ? '' : 's'}`
+            : '';
+        const snippetMessage =
+          mergeResult.addedSnippets > 0
+            ? `${mergeResult.addedSnippets} new snippet${mergeResult.addedSnippets === 1 ? '' : 's'}`
+            : '';
+        const summary = [sectionMessage, snippetMessage].filter(Boolean).join(' and ');
+        toast.success(`Resume parsed successfully — ${summary} added to your snippet bank.`);
+      }
     } catch (error) {
       console.error('Error parsing resume:', error);
       toast.error('Failed to parse resume.');
@@ -136,19 +171,6 @@ const App: React.FC = () => {
       }
     });
 
-    // Remove the snippet from the snippet bank
-    setSnippetBank(prevBank => {
-      const newBank = JSON.parse(JSON.stringify(prevBank));
-      const sectionIndex = newBank.findIndex((s: SnippetBankSection) => s.title === sourceSectionTitle);
-      if (sectionIndex > -1) {
-        newBank[sectionIndex].snippets = newBank[sectionIndex].snippets.filter((s: Snippet) => s.id !== snippet.id);
-        // If the section in the bank is now empty, remove it.
-        if (newBank[sectionIndex].snippets.length === 0) {
-          return newBank.filter((_: any, idx: number) => idx !== sectionIndex);
-        }
-      }
-      return newBank;
-    });
   };
 
   const findSectionAndSnippet = (id: string): { sectionId: string; snippetId: string } | { sectionId: string; snippetId: null } | null => {
