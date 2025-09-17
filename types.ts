@@ -1,3 +1,7 @@
+export interface ParsedSection {
+  title: string;
+  snippets: string[];
+}
 
 export interface Snippet {
   id: string;
